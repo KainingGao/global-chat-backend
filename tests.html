@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Chat Backend Tester</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        .chat-window {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .broadcast-bubble {
+            display: inline-block;
+            padding: 5px 10px;
+            background: #007bff;
+            color: white;
+            border-radius: 15px;
+            margin: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:disabled {
+            background: #ccc;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+        }
+        .status {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>Global Chat Backend Tester</h1>
+    
+    <div class="panel" id="authPanel">
+        <h2>Authentication</h2>
+        <div id="loginForm">
+            <input type="email" id="email" placeholder="Email" value="test@example.com">
+            <input type="password" id="password" placeholder="Password" value="password123">
+            <button onclick="login()">Login</button>
+            <button onclick="showRegister()">Show Register</button>
+        </div>
+        <div id="registerForm" style="display: none;">
+            <input type="text" id="regUsername" placeholder="Username" value="testuser">
+            <input type="email" id="regEmail" placeholder="Email" value="test@example.com">
+            <input type="password" id="regPassword" placeholder="Password" value="password123">
+            <div>
+                <input type="number" id="lat" placeholder="Latitude" value="41.447739" step="0.000001">
+                <input type="number" id="lon" placeholder="Longitude" value="-91.031960" step="0.000001">
+                <input type="text" id="country" placeholder="Country" value="USA">
+                <input type="text" id="state" placeholder="State" value="Iowa">
+                <input type="text" id="city" placeholder="City" value="Muscatine">
+            </div>
+            <button onclick="register()">Register</button>
+            <button onclick="showLogin()">Show Login</button>
+        </div>
+        <div id="authStatus"></div>
+    </div>
+
+    <div class="container">
+        <div>
+            <div class="panel">
+                <h2>User Info</h2>
+                <div id="userInfo">Not logged in</div>
+                <div>Tickets: <span id="ticketCount">0</span></div>
+            </div>
+
+            <div class="panel">
+                <h2>Souvenir System</h2>
+                <button onclick="drawSouvenir()">Draw Souvenir</button>
+                <div id="souvenirResult"></div>
+                <h3>Collection</h3>
+                <div id="collection"></div>
+                <h3>Backpack</h3>
+                <div id="backpack"></div>
+            </div>
+        </div>
+
+        <div>
+            <div class="panel">
+                <h2>Broadcast</h2>
+                <input type="text" id="broadcastMsg" placeholder="Broadcast message">
+                <button onclick="broadcast()">Send Broadcast</button>
+                <div id="broadcasts"></div>
+            </div>
+
+            <div class="panel">
+                <h2>Chat</h2>
+                <select id="chatPartner">
+                    <option value="">Select user to chat with</option>
+                </select>
+                <button onclick="startChat()">Start Chat</button>
+                <div id="chatWindow" class="chat-window"></div>
+                <input type="text" id="chatMessage" placeholder="Type a message...">
+                <button onclick="sendMessage()">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let authToken = null;
+        let socket = null;
+        let currentChatId = null;
+
+        const API_URL = 'http://localhost:3000/api';
+
+        // Auth Functions
+        async function login() {
+            try {
+                const response = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('email').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    handleLoginSuccess(data);
+                } else {
+                    document.getElementById('authStatus').innerHTML = 
+                        `<span class="error">Error: ${data.error}</span>`;
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+            }
+        }
+
+        async function register() {
+            try {
+                const response = await fetch(`${API_URL}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('regUsername').value,
+                        email: document.getElementById('regEmail').value,
+                        password: document.getElementById('regPassword').value,
+                        location: {
+                            lat: parseFloat(document.getElementById('lat').value),
+                            lon: parseFloat(document.getElementById('lon').value),
+                            country: document.getElementById('country').value,
+                            state: document.getElementById('state').value,
+                            city: document.getElementById('city').value
+                        }
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    handleLoginSuccess(data);
+                } else {
+                    document.getElementById('authStatus').innerHTML = 
+                        `<span class="error">Error: ${data.error}</span>`;
+                }
+            } catch (error) {
+                console.error('Register error:', error);
+            }
+        }
+
+        function handleLoginSuccess(data) {
+            currentUser = data.user;
+            authToken = data.token;
+            document.getElementById('authStatus').innerHTML = 
+                `<span class="status">Logged in as ${currentUser.username}</span>`;
+            document.getElementById('userInfo').textContent = 
+                JSON.stringify(currentUser, null, 2);
+            document.getElementById('ticketCount').textContent = currentUser.tickets;
+            
+            // Connect to Socket.io
+            socket = io('http://localhost:3000', {
+                auth: { token: authToken }
+            });
+
+            setupSocketListeners();
+        }
+
+        // Socket.io Functions
+        function setupSocketListeners() {
+            socket.on('connect', () => {
+                console.log('Connected to Socket.io');
+            });
+
+            socket.on('newBroadcast', (data) => {
+                const bubble = document.createElement('div');
+                bubble.className = 'broadcast-bubble';
+                bubble.textContent = `${data.message} (${data.location.lat}, ${data.location.lon})`;
+                document.getElementById('broadcasts').prepend(bubble);
+            });
+
+            socket.on('newMessage', (message) => {
+                appendMessage(message);
+            });
+        }
+
+        // Chat Functions
+        async function startChat() {
+            const participantId = document.getElementById('chatPartner').value;
+            if (!participantId) return;
+
+            try {
+                const response = await fetch(`${API_URL}/chats`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ participantId })
+                });
+                const chat = await response.json();
+                currentChatId = chat._id;
+                
+                // Join chat room
+                socket.emit('joinChat', currentChatId);
+                
+                // Clear and load chat history
+                document.getElementById('chatWindow').innerHTML = '';
+                chat.messages.forEach(appendMessage);
+            } catch (error) {
+                console.error('Start chat error:', error);
+            }
+        }
+
+        function appendMessage(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.textContent = `${message.senderId}: ${message.content}`;
+            document.getElementById('chatWindow').appendChild(messageDiv);
+        }
+
+        function sendMessage() {
+            if (!currentChatId) return;
+            
+            const content = document.getElementById('chatMessage').value;
+            socket.emit('sendMessage', {
+                chatId: currentChatId,
+                content
+            });
+            document.getElementById('chatMessage').value = '';
+        }
+
+        // Broadcast Function
+        function broadcast() {
+            const message = document.getElementById('broadcastMsg').value;
+            socket.emit('broadcast', { message });
+            document.getElementById('broadcastMsg').value = '';
+        }
+
+        // Souvenir Functions
+        async function drawSouvenir() {
+            try {
+                const response = await fetch(`${API_URL}/souvenirs/draw`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('souvenirResult').textContent = 
+                        `Drew ${data.souvenir.name} (${data.souvenir.tier}) - Added to ${data.addedTo}`;
+                    document.getElementById('ticketCount').textContent = data.remainingTickets;
+                    updateUserInfo();
+                } else {
+                    document.getElementById('souvenirResult').textContent = 
+                        `Error: ${data.error}`;
+                }
+            } catch (error) {
+                console.error('Draw souvenir error:', error);
+            }
+        }
+
+        async function updateUserInfo() {
+            try {
+                const response = await fetch(`${API_URL}/users/profile`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const user = await response.json();
+                if (response.ok) {
+                    currentUser = user;
+                    document.getElementById('userInfo').textContent = 
+                        JSON.stringify(user, null, 2);
+                    document.getElementById('collection').textContent = 
+                        JSON.stringify(user.souvenirCollection);
+                    document.getElementById('backpack').textContent = 
+                        JSON.stringify(user.backpack);
+                }
+            } catch (error) {
+                console.error('Update user info error:', error);
+            }
+        }
+
+        // UI Helper Functions
+        function showRegister() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('registerForm').style.display = 'block';
+        }
+
+        function showLogin() {
+            document.getElementById('registerForm').style.display = 'none';
+            document.getElementById('loginForm').style.display = 'block';
+        }
+
+        
+    </script>
+</body>
+</html>

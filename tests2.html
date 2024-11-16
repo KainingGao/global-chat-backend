@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Chat Backend Tester</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.6.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        .chat-window {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        .message {
+            margin: 5px 0;
+            padding: 5px;
+            background: #f0f0f0;
+            border-radius: 4px;
+        }
+        .message.own {
+            background: #d4edda;
+            margin-left: 20px;
+        }
+        .broadcast-bubble {
+            display: inline-block;
+            padding: 5px 10px;
+            background: #007bff;
+            color: white;
+            border-radius: 15px;
+            margin: 5px;
+        }
+        .friends-list {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 10px;
+        }
+        .friend-item {
+            padding: 5px;
+            margin: 2px 0;
+            background: #f8f9fa;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .friend-item:hover {
+            background: #e9ecef;
+        }
+        .friend-item.online {
+            border-left: 4px solid #28a745;
+        }
+        .friend-item.offline {
+            border-left: 4px solid #dc3545;
+        }
+        .socket-status {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .socket-status.connected {
+            background: #28a745;
+            color: white;
+        }
+        .socket-status.disconnected {
+            background: #dc3545;
+            color: white;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:disabled {
+            background: #ccc;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+            width: calc(100% - 20px);
+        }
+        .status {
+            color: green;
+            font-weight: bold;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        #debug {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            max-width: 300px;
+            max-height: 200px;
+            overflow: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="socketStatus" class="socket-status disconnected">Socket: Disconnected</div>
+    <h1>Global Chat Backend Tester</h1>
+    
+    <!-- Auth Panel -->
+    <div class="panel" id="authPanel">
+        <h2>Authentication</h2>
+        <div id="loginForm">
+            <input type="email" id="email" placeholder="Email" value="test@example.com">
+            <input type="password" id="password" placeholder="Password" value="password123">
+            <button onclick="login()">Login</button>
+            <button onclick="showRegister()">Show Register</button>
+        </div>
+        <div id="registerForm" style="display: none;">
+            <input type="text" id="regUsername" placeholder="Username" value="testuser">
+            <input type="email" id="regEmail" placeholder="Email" value="test@example.com">
+            <input type="password" id="regPassword" placeholder="Password" value="password123">
+            <div>
+                <input type="number" id="lat" placeholder="Latitude" value="41.447739" step="0.000001">
+                <input type="number" id="lon" placeholder="Longitude" value="-91.031960" step="0.000001">
+                <input type="text" id="country" placeholder="Country" value="USA">
+                <input type="text" id="state" placeholder="State" value="Iowa">
+                <input type="text" id="city" placeholder="City" value="Muscatine">
+            </div>
+            <button onclick="register()">Register</button>
+            <button onclick="showLogin()">Show Login</button>
+        </div>
+        <div id="authStatus"></div>
+    </div>
+
+    <div class="container">
+        <!-- Left Column -->
+        <div>
+            <!-- User Info Panel -->
+            <div class="panel">
+                <h2>User Info</h2>
+                <div id="userInfo">Not logged in</div>
+                <div>Tickets: <span id="ticketCount">0</span></div>
+            </div>
+
+            <!-- Friends List Panel -->
+            <div class="panel">
+                <h2>Friends</h2>
+                <div id="friendsList" class="friends-list">
+                    No friends yet
+                </div>
+            </div>
+
+            <!-- Souvenir Panel -->
+            <div class="panel">
+                <h2>Souvenir System</h2>
+                <button onclick="drawSouvenir()">Draw Souvenir</button>
+                <div id="souvenirResult"></div>
+                <h3>Collection</h3>
+                <div id="collection"></div>
+                <h3>Backpack</h3>
+                <div id="backpack"></div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div>
+            <!-- Broadcast Panel -->
+            <div class="panel">
+                <h2>Broadcast</h2>
+                <input type="text" id="broadcastMsg" placeholder="Broadcast message">
+                <button onclick="broadcast()">Send Broadcast</button>
+                <div id="broadcasts"></div>
+            </div>
+
+            <!-- Chat Panel -->
+            <div class="panel">
+                <h2>Chat</h2>
+                <select id="chatPartner">
+                    <option value="">Select user to chat with</option>
+                </select>
+                <button onclick="startChat()">Start Chat</button>
+                <div id="chatWindow" class="chat-window"></div>
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="chatMessage" placeholder="Type a message..." 
+                           onkeypress="if(event.key === 'Enter') sendMessage()">
+                    <button onclick="sendMessage()">Send</button>
+                </div>
+                <button onclick="exchangeSouvenir()" id="exchangeSouvenirBtn" style="display: none;">
+                    Exchange Souvenir
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="debug"></div>
+
+    <script>
+        let currentUser = null;
+        let authToken = null;
+        let socket = null;
+        let currentChatId = null;
+        let currentChatPartner = null;
+        let messageCount = 0;
+
+        const API_URL = 'http://localhost:3000/api';
+
+        function log(message) {
+            const debug = document.getElementById('debug');
+            debug.innerHTML = `${new Date().toISOString()}: ${message}<br>${debug.innerHTML}`;
+        }
+
+        // Socket.io Functions
+        function setupSocketConnection() {
+            if (socket) {
+                socket.disconnect();
+            }
+
+            socket = io('http://localhost:3000', {
+                auth: { token: authToken },
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: 5
+            });
+
+            setupSocketListeners();
+        }
+
+        function setupSocketListeners() {
+            socket.on('connect', () => {
+                document.getElementById('socketStatus').className = 'socket-status connected';
+                document.getElementById('socketStatus').textContent = 'Socket: Connected';
+                log('Socket connected');
+            });
+
+            socket.on('disconnect', () => {
+                document.getElementById('socketStatus').className = 'socket-status disconnected';
+                document.getElementById('socketStatus').textContent = 'Socket: Disconnected';
+                log('Socket disconnected');
+            });
+
+            socket.on('error', (error) => {
+                log(`Socket error: ${error.message}`);
+            });
+
+            socket.on('newBroadcast', (data) => {
+                log(`Received broadcast from ${data.userId}`);
+                const bubble = document.createElement('div');
+                bubble.className = 'broadcast-bubble';
+                bubble.textContent = `${data.message} (${data.location.lat}, ${data.location.lon})`;
+                document.getElementById('broadcasts').prepend(bubble);
+            });
+
+            socket.on('newMessage', (message) => {
+                log(`Received message in chat ${currentChatId}`);
+                appendMessage(message);
+                messageCount++;
+                checkMessageThreshold();
+            });
+
+            // Add more socket event listeners as needed
+            socket.on('userOnline', (userId) => {
+                updateFriendStatus(userId, true);
+            });
+
+            socket.on('userOffline', (userId) => {
+                updateFriendStatus(userId, false);
+            });
+        }
+
+        function updateFriendStatus(userId, isOnline) {
+            const friendElement = document.querySelector(`[data-friend-id="${userId}"]`);
+            if (friendElement) {
+                friendElement.className = `friend-item ${isOnline ? 'online' : 'offline'}`;
+            }
+        }
+
+        // Auth Functions
+        async function login() {
+            try {
+                const response = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('email').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    handleLoginSuccess(data);
+                } else {
+                    document.getElementById('authStatus').innerHTML = 
+                        `<span class="error">Error: ${data.error}</span>`;
+                }
+            } catch (error) {
+                log(`Login error: ${error.message}`);
+            }
+        }
+
+        function handleLoginSuccess(data) {
+            currentUser = data.user;
+            authToken = data.token;
+            document.getElementById('authStatus').innerHTML = 
+                `<span class="status">Logged in as ${currentUser.username}</span>`;
+            
+            setupSocketConnection();
+            updateUserInfo();
+            loadFriends();
+        }
+
+        // Friends Functions
+        async function loadFriends() {
+            try {
+                const response = await fetch(`${API_URL}/users/profile`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const data = await response.json();
+                
+                if (response.ok && data.friends) {
+                    const friendsList = document.getElementById('friendsList');
+                    friendsList.innerHTML = '';
+                    
+                    data.friends.forEach(friend => {
+                        const friendDiv = document.createElement('div');
+                        friendDiv.className = 'friend-item';
+                        friendDiv.dataset.friendId = friend._id;
+                        friendDiv.textContent = `${friend.username} (${friend.location.city}, ${friend.location.country})`;
+                        friendDiv.onclick = () => selectChatPartner(friend._id);
+                        friendsList.appendChild(friendDiv);
+
+                        // Update online status based on lastOnline
+                        const isOnline = new Date(friend.lastOnline) > new Date(Date.now() - 5 * 60 * 1000);
+                        updateFriendStatus(friend._id, isOnline);
+                    });
+
+                    // Update chat partner select
+                    const select = document.getElementById('chatPartner');
+                    select.innerHTML = '<option value="">Select user to chat with</option>';
+                    data.friends.forEach(friend => {
+                        const option = document.createElement('option');
+                        option.value = friend._id;
+                        option.textContent = friend.username;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                log(`Load friends error: ${error.message}`);
+            }
+        }
+
+        function selectChatPartner(friendId) {
+            document.getElementById('chatPartner').value = friendId;
+            startChat();
+        }
+
+        // Chat Functions
+        function checkMessageThreshold() {
+            const exchangeBtn = document.getElementById('exchangeSouvenirBtn');
+            if (messageCount >= 10) {
+                exchangeBtn.style.display = 'block';
+            }
+        }
+
+        async function exchangeSouvenir() {
+            if (!currentChatId || !currentChatPartner) return;
+
+            try {
+                // Here we should show a modal to select which souvenir to exchange
+                const souvenirId = prompt("Enter souvenir ID to exchange:"); // This should be replaced with proper UI
+                if (!souvenirId) return;
+
+                const response = await fetch(`${API_URL}/souvenirs/exchange`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        souvenirId,
+                        receiverId: currentChatPartner,
+                        chatId: currentChatId
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    alert('Souvenir exchanged successfully!');
+                    updateUserInfo();
+                    loadFriends();
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            } catch (error) {
+                log(`Exchange souvenir error: ${error.message}`);
+            }
+        }
+
+        // Call this periodically to refresh friends list and status
+        setInterval(() => {
+            if (authToken) {
+                loadFriends();
+            }
+        }, 30000);
+
+        async function drawSouvenir() {
+            try {
+                const response = await fetch(`${API_URL}/souvenirs/draw`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    document.getElementById('souvenirResult').textContent = 
+                        `Drew ${data.souvenir.name} (${data.souvenir.tier}) - Added to ${data.addedTo}`;
+                    document.getElementById('ticketCount').textContent = data.remainingTickets;
+                    updateUserInfo();
+                } else {
+                    document.getElementById('souvenirResult').textContent = 
+                        `Error: ${data.error}`;
+                }
+            } catch (error) {
+                console.error('Draw souvenir error:', error);
+            }
+        }
+
+        async function updateUserInfo() {
+            try {
+                const response = await fetch(`${API_URL}/users/profile`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                const user = await response.json();
+                if (response.ok) {
+                    currentUser = user;
+                    document.getElementById('userInfo').textContent = 
+                        JSON.stringify(user, null, 2);
+                    document.getElementById('collection').textContent = 
+                        JSON.stringify(user.souvenirCollection);
+                    document.getElementById('backpack').textContent = 
+                        JSON.stringify(user.backpack);
+                }
+            } catch (error) {
+                console.error('Update user info error:', error);
+            }
+        }
+
+        // UI Helper Functions
+        function showRegister() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('registerForm').style.display = 'block';
+        }
+
+        function showLogin() {
+            document.getElementById('registerForm').style.display = 'none';
+            document.getElementById('loginForm').style.display = 'block';
+        }
+
+        async function register() {
+            try {
+                const response = await fetch(`${API_URL}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('regUsername').value,
+                        email: document.getElementById('regEmail').value,
+                        password: document.getElementById('regPassword').value,
+                        location: {
+                            lat: parseFloat(document.getElementById('lat').value),
+                            lon: parseFloat(document.getElementById('lon').value),
+                            country: document.getElementById('country').value,
+                            state: document.getElementById('state').value,
+                            city: document.getElementById('city').value
+                        }
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    handleLoginSuccess(data);
+                } else {
+                    document.getElementById('authStatus').innerHTML = 
+                        `<span class="error">Error: ${data.error}</span>`;
+                }
+            } catch (error) {
+                console.error('Register error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
